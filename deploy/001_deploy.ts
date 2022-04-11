@@ -1,31 +1,27 @@
 import { HardhatRuntimeEnvironment } from 'hardhat/types';
 import { DeployFunction } from 'hardhat-deploy/types';
-import { getChainId, shouldVerifyContract } from '../utils/deploy';
-
-export const INITIAL_GREET: { [chainId: string]: string } = {
-  '1': 'Halo!',
-  '137': 'Halo to polygon network!',
-};
+import { shouldVerifyContract } from '../utils/deploy';
+import { toUnit } from '@utils/bn';
 
 const deployFunction: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await hre.getNamedAccounts();
 
-  const chainId = await getChainId(hre);
+  const args = [deployer, toUnit(4_000), toUnit(20_000)];
 
-  const deploy = await hre.deployments.deploy('Greeter', {
-    contract: 'contracts/Greeter.sol:Greeter',
+  const deploy = await hre.deployments.deploy('MakerDAOBudgetManager', {
+    contract: 'solidity/contracts/MakerDAOBudgetManager.sol:MakerDAOBudgetManager',
     from: deployer,
-    args: [INITIAL_GREET[chainId]],
+    args,
     log: true,
   });
 
   if (await shouldVerifyContract(deploy)) {
     await hre.run('verify:verify', {
       address: deploy.address,
-      constructorArguments: [INITIAL_GREET[chainId]],
+      constructorArguments: args,
     });
   }
 };
 deployFunction.dependencies = [];
-deployFunction.tags = ['Greeter'];
+deployFunction.tags = ['MakerDAOBudgetManager'];
 export default deployFunction;
