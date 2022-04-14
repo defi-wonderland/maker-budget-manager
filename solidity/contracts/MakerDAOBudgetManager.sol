@@ -31,7 +31,11 @@ contract MakerDAOBudgetManager is Governable, DustCollector {
 
   uint256 VEST_ID;
 
-  event InvoicedGas(uint256 _gasCostETH, uint256 _claimableDai);
+  mapping(uint256 => uint256) invoiceAmount;
+  uint256 invoiceNonce;
+
+  event InvoicedGas(uint256 indexed _nonce, uint256 _gasCostETH, uint256 _claimableDai, string _description);
+  event DeletedInvoice(uint256 indexed nonce);
   event DaiReturned(uint256);
   event TokenCreditsRefilled(uint256);
   event ClaimedDai(uint256);
@@ -67,17 +71,24 @@ contract MakerDAOBudgetManager is Governable, DustCollector {
 
   // Methods
 
-  function invoiceGas(uint256 _gasCostETH, uint256 _claimableDai) external onlyGovernor {
-    /* TODO:
-     * - _claimableDai = twap calculation for ETH / DAI
-     * - DAI_WETH_V3_POOL = 0xC2e9F25Be6257c210d7Adf0D4Cd6E3E881ba25f8
-     * - add way of register from-to of invoicedGas
-     */
-
+  function invoiceGas(
+    uint256 _gasCostETH,
+    uint256 _claimableDai,
+    string memory _description
+  ) external onlyGovernor {
     daiToClaim += _claimableDai;
+    invoiceAmount[++invoiceNonce] = _claimableDai;
 
     // emits event to be tracked in DuneAnalytics dashboard & contrast with txs
-    emit InvoicedGas(_gasCostETH, _claimableDai);
+    emit InvoicedGas(invoiceNonce, _gasCostETH, _claimableDai, _description);
+  }
+
+  function deleteInvoice(uint256 _invoiceNonce) external onlyGovernor {
+    daiToClaim -= invoiceAmount[_invoiceNonce];
+    delete invoiceAmount[_invoiceNonce];
+
+    // emits event to filter out InvoicedGas events
+    emit DeletedInvoice(_invoiceNonce);
   }
 
   function claimDai() external onlyGovernor {

@@ -10,7 +10,7 @@ import { ethers } from 'hardhat';
 
 chai.use(smock.matchers);
 
-describe('MakerDAOBudgetManager', () => {
+describe.only('MakerDAOBudgetManager', () => {
   let governor: SignerWithAddress;
   let dai: FakeContract<IERC20>;
   let keep3r: FakeContract<IKeep3rV2>;
@@ -67,6 +67,7 @@ describe('MakerDAOBudgetManager', () => {
     // it('should be onlyGovernor')
     const ETH_AMOUNT = toUnit(1);
     const DAI_AMOUNT = toUnit(1000);
+    const DESCRIPTION = 'INVOICE DESCRIPTION';
 
     let tx: Transaction;
     let daiAccountance: BigNumber;
@@ -74,7 +75,7 @@ describe('MakerDAOBudgetManager', () => {
     beforeEach(async () => {
       daiAccountance = await budgetManager.daiToClaim();
 
-      tx = await budgetManager.connect(governor).invoiceGas(ETH_AMOUNT, DAI_AMOUNT);
+      tx = await budgetManager.connect(governor).invoiceGas(ETH_AMOUNT, DAI_AMOUNT, DESCRIPTION);
     });
 
     it('should increase claimable DAI accountance', async () => {
@@ -83,7 +84,7 @@ describe('MakerDAOBudgetManager', () => {
     });
 
     it('should emit event', async () => {
-      await expect(tx).to.emit(budgetManager, 'InvoicedGas').withArgs(ETH_AMOUNT, DAI_AMOUNT);
+      await expect(tx).to.emit(budgetManager, 'InvoicedGas').withArgs(1, ETH_AMOUNT, DAI_AMOUNT, DESCRIPTION);
     });
   });
 
