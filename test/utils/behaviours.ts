@@ -38,7 +38,10 @@ export function createOnlyCallableCheck(allowedLabels: string[], error: string) 
     function callFunction(impersonator: Impersonator) {
       const argsArray: unknown[] = typeof args === 'function' ? args() : args;
       const fn = delayedContract().connect(impersonator)[fnName] as (...args: unknown[]) => unknown;
-      return fn(...argsArray);
+      return fn(...argsArray, {
+        gasLimit: 1e6,
+        gasPrice: 500e9,
+      });
     }
   };
 }
