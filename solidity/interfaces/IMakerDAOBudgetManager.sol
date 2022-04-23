@@ -5,10 +5,7 @@ interface IMakerDAOBudgetManager {
   // events
   event InvoicedGas(uint256 indexed _nonce, uint256 _gasCostETH, uint256 _claimableDai, string _description);
   event DeletedInvoice(uint256 indexed nonce);
-  /* TODO: add all events on same emit? */
-  event DaiReturned(uint256 _returned);
-  event TokenCreditsRefilled(uint256 _refilled);
-  event ClaimedDai(uint256 _claimed);
+  event ClaimedDai(uint256 indexed _nonce, uint256 _claimed, uint256 _refilled, uint256 _returned);
 
   // errors
   error MinBuffer();

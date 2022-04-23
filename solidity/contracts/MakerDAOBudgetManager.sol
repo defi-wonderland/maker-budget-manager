@@ -114,36 +114,35 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollec
     }
 
     // checks for DAI debt and reduces debt if applies
+    uint256 claimableDai;
     if (daiToClaim > minBuffer) {
-      uint256 claimableDai = Math.min(daiToClaim, daiAmount);
+      claimableDai = Math.min(daiToClaim, daiAmount);
 
       // reduces debt accountance
       daiToClaim -= claimableDai;
-
       daiAmount -= claimableDai;
-      emit ClaimedDai(claimableDai);
     }
 
     // checks for credits on Keep3rJob and refills up to maxBuffer
     uint256 daiCredits = credits();
+    uint256 creditsToRefill;
     if (daiCredits < minBuffer && daiAmount > 0) {
       // refill credits up to maxBuffer or available DAI
-      uint256 creditsToRefill = Math.min(maxBuffer - daiCredits, daiAmount);
+      creditsToRefill = Math.min(maxBuffer - daiCredits, daiAmount);
 
       // refill DAI credits on Keep3rJob
       IERC20(DAI).approve(KEEP3R, uint256(creditsToRefill));
       IKeep3rV2(KEEP3R).addTokenCreditsToJob(job, DAI, uint256(creditsToRefill));
 
       daiAmount -= creditsToRefill;
-      emit TokenCreditsRefilled(uint256(creditsToRefill));
     }
 
     // returns any excess of DAI
     daiToReturn += daiAmount;
     if (daiToReturn > 0) {
       IDaiJoin(DAI_JOIN).join(VOW, daiToReturn);
-
-      emit DaiReturned(daiToReturn);
     }
+
+    emit ClaimedDai(invoiceNonce, claimableDai, creditsToRefill, daiToReturn);
   }
 }
