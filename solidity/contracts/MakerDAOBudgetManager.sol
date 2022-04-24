@@ -44,7 +44,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollec
   address public constant override DSS_VEST = 0x2Cc583c0AaCDaC9e23CB601fDA8F1A0c56Cdcb71;
 
   /* TODO: add setters */
-  address public constant override KEEP3R = 0x4A6cFf9E1456eAa3b6f37572395C6fa0c959edAB;
+  address public constant override KEEP3R = 0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC;
 
   constructor(
     address _governor,
@@ -57,6 +57,8 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollec
     minBuffer = _minBuffer;
     maxBuffer = _maxBuffer;
     vestId = _vestId;
+
+    IERC20(DAI).approve(DAI_JOIN, type(uint256).max);
   }
 
   // Views

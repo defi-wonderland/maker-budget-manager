@@ -26,7 +26,7 @@ describe('MakerDAOBudgetManager', () => {
   const MIN_BUFFER = toUnit(4_000);
   const MAX_BUFFER = toUnit(20_000);
 
-  const KEEP3R_ADDRESS = '0x4A6cFf9E1456eAa3b6f37572395C6fa0c959edAB';
+  const KEEP3R_ADDRESS = '0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC';
   const JOB_ADDRESS = '0x28937B751050FcFd47Fd49165C6E1268c296BA19';
   const DAI_ADDRESS = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
   const VEST_ADDRESS = '0x2Cc583c0AaCDaC9e23CB601fDA8F1A0c56Cdcb71';
@@ -77,11 +77,16 @@ describe('MakerDAOBudgetManager', () => {
       expect(postDaiAccountance.sub(daiAccountance)).to.be.eq(DAI_AMOUNT);
     });
 
+    it('should increase invoice nonce', async () => {
+      expect(await budgetManager.invoiceNonce()).to.be.eq(1);
+      await budgetManager.connect(governor).invoiceGas(ETH_AMOUNT, DAI_AMOUNT, DESCRIPTION);
+
+      expect(await budgetManager.invoiceNonce()).to.be.eq(2);
+    });
+
     it('should emit event', async () => {
       await expect(tx).to.emit(budgetManager, 'InvoicedGas').withArgs(1, ETH_AMOUNT, DAI_AMOUNT, DESCRIPTION);
     });
-
-    /* TODO: add deleteInvoice test*/
   });
 
   describe('deleteInvoice', () => {

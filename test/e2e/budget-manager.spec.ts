@@ -18,6 +18,7 @@ const vestProxyAddress = '0xBE8E3e3618f7474F8cB1d074A26afFef007E98FB';
 describe('MakerDAOBudgetManager @skip-on-coverage', () => {
   let deployer: SignerWithAddress;
   let stranger: SignerWithAddress;
+  let governance: SignerWithAddress;
   let vestProxy: JsonRpcSigner;
   let daiWhale: JsonRpcSigner;
   let dai: Dai;
@@ -27,11 +28,14 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
   let snapshotId: string;
   let budgetManager: MakerDAOBudgetManager;
 
+  const DAY = 86400;
+  const DELTA = bn.toUnit(0.1).toString();
+
   const MIN_BUFFER = bn.toUnit(4_000);
   const MAX_BUFFER = bn.toUnit(20_000);
 
   before(async () => {
-    [deployer, stranger] = await ethers.getSigners();
+    [deployer, stranger, governance] = await ethers.getSigners();
 
     await evm.reset({
       jsonRpcUrl: getNodeUrl('ethereum'),
@@ -53,10 +57,10 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
     await keep3r.addJob(job.address);
 
     // add vest
-    const TOTAL_VEST_AMOUNT = bn.toUnit(1_000_000);
+    const TOTAL_VEST_AMOUNT = bn.toUnit(365_000);
     const START_TIMESTAMP = (await ethers.provider.getBlock('latest')).timestamp;
-    const DURATION = 86400 * 365; // 1yr
-    const CLIFF = 1000; // 1000 DAI / day ?
+    const DURATION = 365 * DAY; // 1yr
+    const CLIFF = 1; // 1000 DAI / day ?
 
     const budgetManagerNonce = await ethers.provider.getTransactionCount(deployer.address);
     const budgetManagerAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: budgetManagerNonce });
@@ -67,7 +71,7 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
 
     // setup budget manager
     const budgetManagerFactory = (await ethers.getContractFactory('MakerDAOBudgetManager')) as MakerDAOBudgetManager__factory;
-    budgetManager = await budgetManagerFactory.connect(deployer).deploy(stranger.address, job.address, MIN_BUFFER, MAX_BUFFER, vestID);
+    budgetManager = await budgetManagerFactory.connect(deployer).deploy(governance.address, job.address, MIN_BUFFER, MAX_BUFFER, vestID);
 
     snapshotId = await evm.snapshot.take();
   });
@@ -84,52 +88,55 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
   });
 
   describe('claim', () => {
-    it('should be able to claim vested DAI', async () => {
-      await budgetManager.connect(stranger).invoiceGas(0, bn.toUnit(10_000), 'TEST');
-      await evm.advanceTimeAndBlock(432000);
-      await budgetManager.connect(stranger).claimDai();
+    it('should be able to claim invoiced DAI', async () => {
+      await budgetManager.connect(governance).invoiceGas(0, bn.toUnit(10_000), 'TEST');
+      // needed to claim because of minBuffer
+      await evm.advanceTimeAndBlock(4 * DAY);
+      await budgetManager.connect(governance).claimDai();
 
       expect(await dai.balanceOf(budgetManager.address)).to.be.gt(0);
     });
-  });
 
-  describe.skip('DAI credits', () => {
-    when('job has less DAI credits than minBuffer', () => {
-      let minBuffer: BigNumber;
+    it('should be able to return surplus DAI', async () => {
+      await evm.advanceTimeAndBlock(10 * DAY);
+      await budgetManager.connect(governance).claimDai();
+      // minBuffer is already filled
 
-      beforeEach(async () => {
-        minBuffer = await budgetManager.minBuffer();
-        await evm.advanceTimeAndBlock(1000000);
-        await budgetManager.connect(stranger).claimDai();
-      });
-
-      it('should refill credits until minBuffer', async () => {
-        expect(await keep3r.jobTokenCredits(job.address, dai.address)).to.be.gt(0);
-
-        await evm.advanceTimeAndBlock(4320000);
-        await budgetManager.connect(stranger).claimDai();
-
-        // TODO: handle Keep3r fees
-        expect(await keep3r.jobTokenCredits(job.address, dai.address)).to.be.closeTo(minBuffer, bn.toUnit(1).toString());
-      });
-
-      it('should return any DAI above minBuffer', async () => {
-        expect(await keep3r.jobTokenCredits(job.address, dai.address)).to.be.gt(0);
-
-        await evm.advanceTimeAndBlock(4320000);
-        const tx = await budgetManager.connect(stranger).claimDai();
-
-        await expect(tx).to.emit(dai, 'Transfer'); //.withArgs(budgetManager.address, dai.address, )
-      });
-
-      it('should revert to claim when reaches minBuffer');
+      await evm.advanceTimeAndBlock(10 * DAY);
+      // should return the 10k
+      await budgetManager.connect(governance).claimDai();
     });
-  });
-  describe('Gas invoices', () => {
-    when('job has gas invoices', () => {
-      it('should cancel debt with claimed DAI');
-      it('should be able to claim up to maxBuffer at once');
-      it('should return any DAI above maxBuffer');
+
+    it('should be able to refill DAI credits', async () => {
+      await evm.advanceTimeAndBlock(10 * DAY);
+      // refills job with 10k DAI
+      const expectedDai = bn.toUnit(10_000);
+      await budgetManager.connect(governance).claimDai();
+
+      const expectedCredits = expectedDai.mul(997).div(1000);
+      const initialCredits = await keep3r.jobTokenCredits(job.address, dai.address);
+
+      expect(initialCredits).to.be.closeTo(expectedCredits, DELTA);
+
+      const THOUSAND = bn.toUnit(1_000);
+
+      await job.workForDAIs(THOUSAND);
+      await job.workForDAIs(THOUSAND);
+      await job.workForDAIs(THOUSAND);
+      await job.workForDAIs(THOUSAND);
+
+      // expected credits: ~6k
+      await expect(budgetManager.connect(governance).claimDai()).to.be.revertedWith('MinBuffer');
+
+      // expected credits: ~4k
+      await job.workForDAIs(THOUSAND.mul(2));
+
+      await evm.advanceTimeAndBlock(5 * DAY);
+      await budgetManager.connect(governance).claimDai();
+      // expected credits: ~9k
+
+      const credits = await keep3r.jobTokenCredits(job.address, dai.address);
+      expect(credits).to.be.closeTo(bn.toUnit(9_000), bn.toUnit(1000));
     });
   });
 });
