@@ -15,6 +15,7 @@
 
 pragma solidity >=0.8.4 <0.9.0;
 
+import './MakerDAOParameters.sol';
 import './utils/Governable.sol';
 import './utils/DustCollector.sol';
 
@@ -25,26 +26,13 @@ import '../interfaces/external/IDssVest.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/utils/math/Math.sol';
 
-contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollector {
-  uint256 public immutable override minBuffer;
-  uint256 public immutable override maxBuffer;
+contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Governable, DustCollector {
+  address public override keep3r = 0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC;
+  address public override job = 0x5D469E1ef75507b0E0439667ae45e280b9D81B9C;
 
   uint256 public override daiToClaim;
-
-  /* TODO: add setters */
-  uint256 public immutable override vestId;
-  address public immutable override job;
-
-  mapping(uint256 => uint256) public override invoiceAmount;
   uint256 public override invoiceNonce;
-
-  address public constant override DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
-  address public constant override DAI_JOIN = 0x9759A6Ac90977b93B58547b4A71c78317f391A28;
-  address public constant override VOW = 0xA950524441892A31ebddF91d3cEEFa04Bf454466;
-  address public constant override DSS_VEST = 0x2Cc583c0AaCDaC9e23CB601fDA8F1A0c56Cdcb71;
-
-  /* TODO: add setters */
-  address public constant override KEEP3R = 0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC;
+  mapping(uint256 => uint256) public override invoiceAmount;
 
   constructor(
     address _governor,
@@ -53,18 +41,14 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollec
     uint256 _maxBuffer,
     uint256 _vestId
   ) Governable(_governor) {
-    job = _job;
-    minBuffer = _minBuffer;
-    maxBuffer = _maxBuffer;
-    vestId = _vestId;
-
+    emit Keep3rJobSet(keep3r, job);
     IERC20(DAI).approve(DAI_JOIN, type(uint256).max);
   }
 
   // Views
 
   function credits() public view override returns (uint256 _daiCredits) {
-    return IKeep3rV2(KEEP3R).jobTokenCredits(job, DAI);
+    return IKeep3rV2(keep3r).jobTokenCredits(job, DAI);
   }
 
   // Methods
@@ -85,10 +69,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollec
     uint256 deleteAmount = invoiceAmount[_invoiceNonce];
     if (deleteAmount > daiToClaim) revert InvoiceClaimed();
 
-    unchecked {
-      // deleteAmount < daiToClaim
-      daiToClaim -= deleteAmount;
-    }
+    daiToClaim -= deleteAmount;
     delete invoiceAmount[_invoiceNonce];
 
     // emits event to filter out InvoicedGas events
@@ -108,10 +89,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollec
     // avoids any claim above maxBuffer
     uint256 daiToReturn;
     if (daiAmount > maxBuffer) {
-      unchecked {
-        // daiAmount > maxBuffer
-        daiToReturn = daiAmount - maxBuffer;
-      }
+      daiToReturn = daiAmount - maxBuffer;
       daiAmount = maxBuffer;
     }
 
@@ -133,8 +111,8 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollec
       creditsToRefill = Math.min(maxBuffer - daiCredits, daiAmount);
 
       // refill DAI credits on Keep3rJob
-      IERC20(DAI).approve(KEEP3R, uint256(creditsToRefill));
-      IKeep3rV2(KEEP3R).addTokenCreditsToJob(job, DAI, uint256(creditsToRefill));
+      IERC20(DAI).approve(keep3r, uint256(creditsToRefill));
+      IKeep3rV2(keep3r).addTokenCreditsToJob(job, DAI, uint256(creditsToRefill));
 
       daiAmount -= creditsToRefill;
     }
@@ -145,6 +123,16 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, Governable, DustCollec
       IDaiJoin(DAI_JOIN).join(VOW, daiToReturn);
     }
 
+    // emits event to be tracked in DuneAnalytics dashboard & tracks DAI flow
     emit ClaimedDai(invoiceNonce, claimableDai, creditsToRefill, daiToReturn);
+  }
+
+  // Parameters
+
+  function setKeep3rJob(address _keep3r, address _job) external override onlyGovernor {
+    keep3r = _keep3r;
+    job = _job;
+
+    emit Keep3rJobSet(_keep3r, _job);
   }
 }

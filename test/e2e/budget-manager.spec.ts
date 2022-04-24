@@ -12,6 +12,7 @@ import { getNodeUrl } from 'utils/env';
 import forkBlockNumber from './fork-block-numbers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 
+const makerAddress = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
 const daiWhaleAddress = '0x16463c0fdb6ba9618909f5b120ea1581618c1b9e';
 const vestProxyAddress = '0xBE8E3e3618f7474F8cB1d074A26afFef007E98FB';
 
@@ -20,7 +21,7 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
   let stranger: SignerWithAddress;
   let governance: SignerWithAddress;
   let vestProxy: JsonRpcSigner;
-  let daiWhale: JsonRpcSigner;
+  let maker: JsonRpcSigner;
   let dai: Dai;
   let vest: Vest;
   let job: JobForTest;
@@ -49,7 +50,7 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
 
     wallet.setBalance({ account: vestProxyAddress, balance: bn.toUnit(10) });
     vestProxy = await wallet.impersonate(vestProxyAddress);
-    daiWhale = await wallet.impersonate(daiWhaleAddress);
+    maker = await wallet.impersonate(makerAddress);
 
     // add job to Keep3r
     const jobFactory = (await ethers.getContractFactory('JobForTest')) as JobForTest__factory;
@@ -72,6 +73,11 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
     // setup budget manager
     const budgetManagerFactory = (await ethers.getContractFactory('MakerDAOBudgetManager')) as MakerDAOBudgetManager__factory;
     budgetManager = await budgetManagerFactory.connect(deployer).deploy(governance.address, job.address, MIN_BUFFER, MAX_BUFFER, vestID);
+
+    // NOTE: MakerDAO needs to add vestID after vest was created
+    await budgetManager.connect(maker).setVestId(vestID);
+    // NOTE: Using test deployed job
+    await budgetManager.connect(governance).setKeep3rJob(keep3r.address, job.address);
 
     snapshotId = await evm.snapshot.take();
   });
@@ -105,6 +111,8 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
       await evm.advanceTimeAndBlock(10 * DAY);
       // should return the 10k
       await budgetManager.connect(governance).claimDai();
+
+      /* TODO: add events check */
     });
 
     it('should be able to refill DAI credits', async () => {

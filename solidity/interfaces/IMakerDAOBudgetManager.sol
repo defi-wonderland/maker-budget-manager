@@ -2,24 +2,23 @@
 pragma solidity >=0.8.4 <0.9.0;
 
 interface IMakerDAOBudgetManager {
-  // events
+  // Events
+
   event InvoicedGas(uint256 indexed _nonce, uint256 _gasCostETH, uint256 _claimableDai, string _description);
   event DeletedInvoice(uint256 indexed nonce);
   event ClaimedDai(uint256 indexed _nonce, uint256 _claimed, uint256 _refilled, uint256 _returned);
+  event Keep3rJobSet(address _keep3r, address _job);
 
-  // errors
+  // Errors
+
   error MinBuffer();
   error InvoiceClaimed();
 
-  // views
-
-  function minBuffer() external returns (uint256);
-
-  function maxBuffer() external returns (uint256);
+  // Views
 
   function daiToClaim() external returns (uint256);
 
-  function vestId() external returns (uint256);
+  function keep3r() external returns (address);
 
   function job() external returns (address);
 
@@ -27,19 +26,9 @@ interface IMakerDAOBudgetManager {
 
   function invoiceNonce() external returns (uint256);
 
-  function DAI() external returns (address);
-
-  function DAI_JOIN() external returns (address);
-
-  function VOW() external returns (address);
-
-  function DSS_VEST() external returns (address);
-
-  function KEEP3R() external returns (address);
-
   function credits() external view returns (uint256 _daiCredits);
 
-  // methods
+  // Methods
 
   function invoiceGas(
     uint256 _gasCostETH,
@@ -50,4 +39,6 @@ interface IMakerDAOBudgetManager {
   function deleteInvoice(uint256 _invoiceNonce) external;
 
   function claimDai() external;
+
+  function setKeep3rJob(address _keep3r, address _job) external;
 }

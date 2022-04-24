@@ -27,7 +27,7 @@ describe('MakerDAOBudgetManager', () => {
   const MAX_BUFFER = toUnit(20_000);
 
   const KEEP3R_ADDRESS = '0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC';
-  const JOB_ADDRESS = '0x28937B751050FcFd47Fd49165C6E1268c296BA19';
+  const JOB_ADDRESS = '0x5D469E1ef75507b0E0439667ae45e280b9D81B9C';
   const DAI_ADDRESS = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
   const VEST_ADDRESS = '0x2Cc583c0AaCDaC9e23CB601fDA8F1A0c56Cdcb71';
   const JOIN_ADDRESS = '0x9759A6Ac90977b93B58547b4A71c78317f391A28';
@@ -290,6 +290,32 @@ describe('MakerDAOBudgetManager', () => {
           await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, 0, DAI_TRANSFERRED, 0);
         });
       });
+    });
+  });
+
+  describe('setKeep3rJob', () => {
+    let tx: Transaction;
+    const randomKeep3r = wallet.generateRandomAddress();
+    const randomJob = wallet.generateRandomAddress();
+
+    onlyGovernor(
+      () => budgetManager,
+      'setKeep3rJob',
+      () => governor,
+      () => [randomKeep3r, randomJob]
+    );
+
+    it('should set the keep3r address', async () => {
+      await budgetManager.connect(governor).setKeep3rJob(randomKeep3r, randomJob);
+
+      expect(await budgetManager.keep3r()).to.be.deep.eq(randomKeep3r);
+      expect(await budgetManager.job()).to.be.deep.eq(randomJob);
+    });
+
+    it('should emit event', async () => {
+      tx = await budgetManager.connect(governor).setKeep3rJob(randomKeep3r, randomJob);
+
+      await expect(tx).to.emit(budgetManager, 'Keep3rJobSet').withArgs(randomKeep3r, randomJob);
     });
   });
 });
