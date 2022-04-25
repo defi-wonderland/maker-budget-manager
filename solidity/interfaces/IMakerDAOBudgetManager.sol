@@ -8,11 +8,13 @@ interface IMakerDAOBudgetManager {
   event DeletedInvoice(uint256 indexed nonce);
   event ClaimedDai(uint256 indexed _nonce, uint256 _claimed, uint256 _refilled, uint256 _returned);
   event Keep3rJobSet(address _keep3r, address _job);
+  event KeeperSet(address _keeper);
 
   // Errors
 
   error MinBuffer();
   error InvoiceClaimed();
+  error OnlyKeeper();
 
   // Views
 
@@ -21,6 +23,8 @@ interface IMakerDAOBudgetManager {
   function keep3r() external returns (address);
 
   function job() external returns (address);
+
+  function keeper() external returns (address);
 
   function invoiceAmount(uint256 _invoiceNonce) external returns (uint256);
 
@@ -40,5 +44,9 @@ interface IMakerDAOBudgetManager {
 
   function claimDai() external;
 
+  function claimDaiUpkeep() external;
+
   function setKeep3rJob(address _keep3r, address _job) external;
+
+  function setKeeper(address _keeper) external;
 }

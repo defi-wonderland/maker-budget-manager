@@ -29,18 +29,13 @@ import '@openzeppelin/contracts/utils/math/Math.sol';
 contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Governable, DustCollector {
   address public override keep3r = 0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC;
   address public override job = 0x5D469E1ef75507b0E0439667ae45e280b9D81B9C;
+  address public override keeper;
 
   uint256 public override daiToClaim;
   uint256 public override invoiceNonce;
   mapping(uint256 => uint256) public override invoiceAmount;
 
-  constructor(
-    address _governor,
-    address _job,
-    uint256 _minBuffer,
-    uint256 _maxBuffer,
-    uint256 _vestId
-  ) Governable(_governor) {
+  constructor(address _governor) Governable(_governor) {
     emit Keep3rJobSet(keep3r, job);
     IERC20(DAI).approve(DAI_JOIN, type(uint256).max);
   }
@@ -77,13 +72,20 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
   }
 
   function claimDai() external override onlyGovernor {
+    _claimDai();
+  }
+
+  function claimDaiUpkeep() external override onlyKeeper {
+    _claimDai();
+  }
+
+  function _claimDai() internal {
     // claims DAI
     uint256 daiAmount = IERC20(DAI).balanceOf(address(this));
     IDssVest(DSS_VEST).vest(vestId);
     // removes previous balance from scope
     daiAmount = IERC20(DAI).balanceOf(address(this)) - daiAmount;
 
-    /* TODO: discuss if it's worth the revert */
     if (daiAmount < minBuffer) revert MinBuffer();
 
     // avoids any claim above maxBuffer
@@ -134,5 +136,18 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
     job = _job;
 
     emit Keep3rJobSet(_keep3r, _job);
+  }
+
+  function setKeeper(address _keeper) external override onlyGovernor {
+    keeper = _keeper;
+
+    emit KeeperSet(_keeper);
+  }
+
+  // Modifiers
+
+  modifier onlyKeeper() {
+    if (msg.sender != keeper) revert OnlyKeeper();
+    _;
   }
 }

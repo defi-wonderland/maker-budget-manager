@@ -45,7 +45,6 @@ contract MakerDAOParameters is IMakerDAOParameters {
 
   // Modifiers
 
-  /* TODO: add test behaviour */
   modifier onlyMaker() {
     if (msg.sender != MAKER_DAO) revert OnlyMaker();
     _;

@@ -2,7 +2,7 @@ import { FakeContract, MockContract, smock } from '@defi-wonderland/smock';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { MakerDAOBudgetManager, MakerDAOBudgetManager__factory, IKeep3rV2, IERC20, IDssVest, IDaiJoin } from '@typechained';
 import { evm, wallet } from '@utils';
-import { onlyGovernor } from '@utils/behaviours';
+import { onlyGovernor, onlyKeeper } from '@utils/behaviours';
 import { toUnit } from '@utils/bn';
 import chai, { expect } from 'chai';
 import { BigNumber, Transaction } from 'ethers';
@@ -14,6 +14,7 @@ const JOB_ADDRESS = wallet.generateRandomAddress();
 
 describe('MakerDAOBudgetManager', () => {
   let governor: SignerWithAddress;
+  let keeper: SignerWithAddress;
   let dai: FakeContract<IERC20>;
   let keep3r: FakeContract<IKeep3rV2>;
   let vest: FakeContract<IDssVest>;
@@ -34,7 +35,7 @@ describe('MakerDAOBudgetManager', () => {
   const VOW_ADDRESS = '0xA950524441892A31ebddF91d3cEEFa04Bf454466';
 
   before(async () => {
-    [, governor] = await ethers.getSigners();
+    [, governor, keeper] = await ethers.getSigners();
 
     keep3r = await smock.fake<IKeep3rV2>('IKeep3rV2', { address: KEEP3R_ADDRESS });
     dai = await smock.fake<IERC20>('IERC20', { address: DAI_ADDRESS });
@@ -42,7 +43,7 @@ describe('MakerDAOBudgetManager', () => {
     daiJoin = await smock.fake<IDaiJoin>('IDaiJoin', { address: JOIN_ADDRESS });
 
     const budgetManagerFactory = await smock.mock<MakerDAOBudgetManager__factory>('MakerDAOBudgetManager');
-    budgetManager = await budgetManagerFactory.deploy(governor.address, JOB_ADDRESS, MIN_BUFFER, MAX_BUFFER, 0);
+    budgetManager = await budgetManagerFactory.deploy(governor.address);
 
     snapshotId = await evm.snapshot.take();
   });
@@ -100,7 +101,13 @@ describe('MakerDAOBudgetManager', () => {
       await budgetManager.setVariable('invoiceAmount', { 1: INVOICED_DAI });
     });
 
-    /* TODO: add onlyGovernor test */
+    onlyGovernor(
+      () => budgetManager,
+      'deleteInvoice',
+      () => governor,
+      () => [1]
+    );
+
     it('should revert if invoice already been claimed', async () => {
       await budgetManager.setVariable('daiToClaim', 0);
 
@@ -120,7 +127,6 @@ describe('MakerDAOBudgetManager', () => {
   });
 
   describe('claimDai', () => {
-    /* TODO: add onlyGovernor test */
     let tx: Transaction;
 
     context('when transferred DAI is less than minBuffer', () => {
@@ -150,6 +156,13 @@ describe('MakerDAOBudgetManager', () => {
         keep3r.jobTokenCredits.returns(MIN_BUFFER); // no need to act
       });
 
+      onlyGovernor(
+        () => budgetManager,
+        'claimDai',
+        () => governor,
+        () => []
+      );
+
       it('should query DAI balance twice', async () => {
         await budgetManager.connect(governor).claimDai();
         expect(dai.balanceOf).to.have.been.calledTwice;
@@ -157,7 +170,6 @@ describe('MakerDAOBudgetManager', () => {
       });
 
       it('should call DSS Vest', async () => {
-        /* TODO: add arguments VEST_ID & add to constructor */
         tx = await budgetManager.connect(governor).claimDai();
         expect(vest['vest(uint256)']).to.have.been.calledOnce;
       });
@@ -185,9 +197,8 @@ describe('MakerDAOBudgetManager', () => {
             expect(await budgetManager.daiToClaim()).to.be.eq(DAI_TO_CLAIM);
           });
 
-          /* TODO: remove minBuffer error revert */
-          it.skip('should not emit event', async () => {
-            await expect(tx).not.to.emit(budgetManager, 'ClaimedDai');
+          it('should emit event', async () => {
+            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, 0, 0, DAI_TRANSFERRED);
           });
         });
 
@@ -293,6 +304,22 @@ describe('MakerDAOBudgetManager', () => {
     });
   });
 
+  describe('claimUpkeep', () => {
+    const DAI_TRANSFERRED = toUnit(10_000);
+    beforeEach(async () => {
+      await budgetManager.connect(governor).setKeeper(keeper.address);
+      dai.balanceOf.returnsAtCall(0, 0);
+      dai.balanceOf.returnsAtCall(1, DAI_TRANSFERRED);
+    });
+
+    onlyKeeper(
+      () => budgetManager,
+      'claimDaiUpkeep',
+      () => keeper,
+      () => []
+    );
+  });
+
   describe('setKeep3rJob', () => {
     let tx: Transaction;
     const randomKeep3r = wallet.generateRandomAddress();
@@ -316,6 +343,30 @@ describe('MakerDAOBudgetManager', () => {
       tx = await budgetManager.connect(governor).setKeep3rJob(randomKeep3r, randomJob);
 
       await expect(tx).to.emit(budgetManager, 'Keep3rJobSet').withArgs(randomKeep3r, randomJob);
+    });
+  });
+
+  describe('setKeeper', () => {
+    let tx: Transaction;
+    const randomKeeper = wallet.generateRandomAddress();
+
+    onlyGovernor(
+      () => budgetManager,
+      'setKeeper',
+      () => governor,
+      () => [randomKeeper]
+    );
+
+    it('should set the keeper address', async () => {
+      await budgetManager.connect(governor).setKeeper(randomKeeper);
+
+      expect(await budgetManager.keeper()).to.be.deep.eq(randomKeeper);
+    });
+
+    it('should emit event', async () => {
+      tx = await budgetManager.connect(governor).setKeeper(randomKeeper);
+
+      await expect(tx).to.emit(budgetManager, 'KeeperSet').withArgs(randomKeeper);
     });
   });
 });

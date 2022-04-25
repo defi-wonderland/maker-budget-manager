@@ -30,7 +30,7 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
   let budgetManager: MakerDAOBudgetManager;
 
   const DAY = 86400;
-  const DELTA = bn.toUnit(0.1).toString();
+  const DELTA = bn.toUnit(1).toString();
 
   const MIN_BUFFER = bn.toUnit(4_000);
   const MAX_BUFFER = bn.toUnit(20_000);
@@ -52,32 +52,32 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
     vestProxy = await wallet.impersonate(vestProxyAddress);
     maker = await wallet.impersonate(makerAddress);
 
-    // add job to Keep3r
-    const jobFactory = (await ethers.getContractFactory('JobForTest')) as JobForTest__factory;
-    job = await jobFactory.deploy(keep3r.address);
-    await keep3r.addJob(job.address);
-
     // add vest
     const TOTAL_VEST_AMOUNT = bn.toUnit(365_000);
     const START_TIMESTAMP = (await ethers.provider.getBlock('latest')).timestamp;
     const DURATION = 365 * DAY; // 1yr
-    const CLIFF = 1; // 1000 DAI / day ?
+    const CLIFF = 1;
 
     const budgetManagerNonce = await ethers.provider.getTransactionCount(deployer.address);
     const budgetManagerAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: budgetManagerNonce });
 
-    /* TODO: set adequate vest parameters */
     await vest.connect(vestProxy).create(budgetManagerAddress, TOTAL_VEST_AMOUNT, START_TIMESTAMP, DURATION, CLIFF, stranger.address);
     const vestID = await vest.ids();
 
     // setup budget manager
     const budgetManagerFactory = (await ethers.getContractFactory('MakerDAOBudgetManager')) as MakerDAOBudgetManager__factory;
-    budgetManager = await budgetManagerFactory.connect(deployer).deploy(governance.address, job.address, MIN_BUFFER, MAX_BUFFER, vestID);
+    budgetManager = await budgetManagerFactory.connect(deployer).deploy(governance.address);
+
+    // add job to Keep3r
+    const jobFactory = (await ethers.getContractFactory('JobForTest')) as JobForTest__factory;
+    job = await jobFactory.deploy(keep3r.address, budgetManager.address);
+    await keep3r.addJob(job.address);
 
     // NOTE: MakerDAO needs to add vestID after vest was created
     await budgetManager.connect(maker).setVestId(vestID);
     // NOTE: Using test deployed job
     await budgetManager.connect(governance).setKeep3rJob(keep3r.address, job.address);
+    await budgetManager.connect(governance).setKeeper(job.address);
 
     snapshotId = await evm.snapshot.take();
   });
@@ -145,6 +145,25 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
 
       const credits = await keep3r.jobTokenCredits(job.address, dai.address);
       expect(credits).to.be.closeTo(bn.toUnit(9_000), bn.toUnit(1000));
+    });
+  });
+
+  describe('claimUpkeep', () => {
+    it('should revert if minBuffer has not been reached', async () => {
+      await expect(job.cleanseDAIs()).to.be.revertedWith('MinBuffer');
+    });
+
+    it('should be able to work without previous credits', async () => {
+      expect(await budgetManager.credits()).to.be.eq(0);
+
+      const keeperReward = await job.DAI_REWARD();
+      await evm.advanceTimeAndBlock(10 * DAY);
+      const expectedDAI = bn.toUnit(10_000);
+      const expectedCredits = expectedDAI.mul(997).div(1000); // Keep3r protocol fees
+
+      await job.cleanseDAIs();
+
+      expect(await budgetManager.credits()).to.be.closeTo(expectedCredits.sub(keeperReward), DELTA);
     });
   });
 });
