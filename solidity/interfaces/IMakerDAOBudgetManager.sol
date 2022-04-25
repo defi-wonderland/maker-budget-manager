@@ -6,7 +6,7 @@ interface IMakerDAOBudgetManager {
 
   event InvoicedGas(uint256 indexed _nonce, uint256 _gasCostETH, uint256 _claimableDai, string _description);
   event DeletedInvoice(uint256 indexed nonce);
-  event ClaimedDai(uint256 indexed _nonce, uint256 _claimed, uint256 _refilled, uint256 _returned);
+  event ClaimedDai(uint256 _claimed, uint256 _refilled, uint256 _returned);
   event Keep3rJobSet(address _keep3r, address _job);
   event KeeperSet(address _keeper);
 

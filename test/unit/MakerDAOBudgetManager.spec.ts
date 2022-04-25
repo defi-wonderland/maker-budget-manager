@@ -198,7 +198,7 @@ describe('MakerDAOBudgetManager', () => {
           });
 
           it('should emit event', async () => {
-            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, 0, 0, DAI_TRANSFERRED);
+            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, 0, DAI_TRANSFERRED);
           });
         });
 
@@ -218,7 +218,7 @@ describe('MakerDAOBudgetManager', () => {
           });
 
           it('should emit event', async () => {
-            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, DAI_TO_CLAIM, 0, DAI_TRANSFERRED.sub(DAI_TO_CLAIM));
+            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(DAI_TO_CLAIM, 0, DAI_TRANSFERRED.sub(DAI_TO_CLAIM));
           });
         });
 
@@ -234,7 +234,7 @@ describe('MakerDAOBudgetManager', () => {
           });
 
           it('should emit event', async () => {
-            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, DAI_TRANSFERRED, 0, 0);
+            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(DAI_TRANSFERRED, 0, 0);
           });
         });
 
@@ -259,7 +259,7 @@ describe('MakerDAOBudgetManager', () => {
           });
 
           it('should emit event', async () => {
-            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, MAX_BUFFER, 0, DAI_TRANSFERRED.sub(MAX_BUFFER));
+            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(MAX_BUFFER, 0, DAI_TRANSFERRED.sub(MAX_BUFFER));
           });
         });
       });
@@ -298,7 +298,7 @@ describe('MakerDAOBudgetManager', () => {
 
         it('should emit event', async () => {
           tx = await budgetManager.connect(governor).claimDai();
-          await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, 0, DAI_TRANSFERRED, 0);
+          await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, DAI_TRANSFERRED, 0);
         });
       });
     });

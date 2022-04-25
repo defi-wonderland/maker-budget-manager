@@ -126,7 +126,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
     }
 
     // emits event to be tracked in DuneAnalytics dashboard & tracks DAI flow
-    emit ClaimedDai(invoiceNonce, claimableDai, creditsToRefill, daiToReturn);
+    emit ClaimedDai(claimableDai, creditsToRefill, daiToReturn);
   }
 
   // Parameters
