@@ -22,12 +22,14 @@ contract MakerDAOParameters is IMakerDAOParameters {
 
   // Views
 
+  /// @inheritdoc IMakerDAOParameters
   function buffer() external view override returns (uint256 _minBuffer, uint256 _maxBuffer) {
     return (minBuffer, maxBuffer);
   }
 
   // Setters
 
+  /// @inheritdoc IMakerDAOParameters
   function setBuffer(uint256 _minBuffer, uint256 _maxBuffer) external onlyMaker {
     minBuffer = _minBuffer;
     maxBuffer = _maxBuffer;
@@ -35,6 +37,7 @@ contract MakerDAOParameters is IMakerDAOParameters {
     emit BufferSet(_minBuffer, _maxBuffer);
   }
 
+  /// @inheritdoc IMakerDAOParameters
   function setVestId(uint256 _vestId) public onlyMaker {
     (address _usr, uint48 _bgn, uint48 _clf, uint48 _fin, , , uint128 _tot, ) = IDssVest(DSS_VEST).awards(_vestId);
     if (_usr != address(this)) revert IncorrectVestId();

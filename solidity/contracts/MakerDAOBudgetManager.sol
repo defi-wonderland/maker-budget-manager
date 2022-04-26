@@ -42,12 +42,14 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
 
   // Views
 
+  /// @inheritdoc IMakerDAOBudgetManager
   function credits() public view override returns (uint256 _daiCredits) {
     return IKeep3rV2(keep3r).jobTokenCredits(job, DAI);
   }
 
   // Methods
 
+  /// @inheritdoc IMakerDAOBudgetManager
   function invoiceGas(
     uint256 _gasCostETH,
     uint256 _claimableDai,
@@ -60,6 +62,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
     emit InvoicedGas(invoiceNonce, _gasCostETH, _claimableDai, _description);
   }
 
+  /// @inheritdoc IMakerDAOBudgetManager
   function deleteInvoice(uint256 _invoiceNonce) external override onlyGovernor {
     uint256 deleteAmount = invoiceAmount[_invoiceNonce];
     if (deleteAmount > daiToClaim) revert InvoiceClaimed();
@@ -71,14 +74,17 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
     emit DeletedInvoice(_invoiceNonce);
   }
 
+  /// @inheritdoc IMakerDAOBudgetManager
   function claimDai() external override onlyGovernor {
     _claimDai();
   }
 
+  /// @inheritdoc IMakerDAOBudgetManager
   function claimDaiUpkeep() external override onlyKeeper {
     _claimDai();
   }
 
+  /// @notice This function handles the flow of Vested DAI
   function _claimDai() internal {
     // claims DAI
     uint256 daiAmount = IERC20(DAI).balanceOf(address(this));
@@ -88,7 +94,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
 
     if (daiAmount < minBuffer) revert MinBuffer();
 
-    // avoids any claim above maxBuffer
+    // returns any DAI above maxBuffer
     uint256 daiToReturn;
     if (daiAmount > maxBuffer) {
       daiToReturn = daiAmount - maxBuffer;
@@ -105,7 +111,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
       daiAmount -= claimableDai;
     }
 
-    // checks for credits on Keep3rJob and refills up to maxBuffer
+    // checks for credits on Keep3rJob and refills up to maxBuffer if possible
     uint256 daiCredits = credits();
     uint256 creditsToRefill;
     if (daiCredits < minBuffer && daiAmount > 0) {
@@ -131,6 +137,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
 
   // Parameters
 
+  /// @inheritdoc IMakerDAOBudgetManager
   function setKeep3rJob(address _keep3r, address _job) external override onlyGovernor {
     keep3r = _keep3r;
     job = _job;
@@ -138,6 +145,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
     emit Keep3rJobSet(_keep3r, _job);
   }
 
+  /// @inheritdoc IMakerDAOBudgetManager
   function setKeeper(address _keeper) external override onlyGovernor {
     keeper = _keeper;
 
