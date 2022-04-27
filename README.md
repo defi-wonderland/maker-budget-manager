@@ -1,118 +1,29 @@
-# Hardhat Boilerplate
+# MakerDAO Budget Manager
 
-## Why ?
+## What?
 
-Thought to have a fast way of bootstraping projects with best practice's in mind. Having linters, prettiers, standards on how to commit, and changelog creation & maintenance.
+A contract to handle the vesting of DAI to pay for the maintenance of a Keep3r Network
 
----
+## How?
 
-## How ?
+The contract will allow the vest to be called when there is more to claim than `minBuffer`. If vested DAI surpass `maxBuffer`, it will first trim the DAI amount to that max, and then proceed in following order to:
 
-This is achieved using several hardhat plugins, and external known packages.
+- pay invoiced debt in DAI
+- refill credits in Keep3r Job
+- return any surplus amount of DAI
 
----
+### Invoices
 
-## Tools
+The governor of the contract can add invoices that result in increasing the total debt amount. When the vest is called, the debt get's reduced with the received DAI. Invoices will be tracked through a Dune dashboard, to allow public contrast with the actual work transactions of the network.
 
-This boilerplate includes:
+### Vest
 
-- [Hardhat](https://hardhat.org/)
-- [Solhint](https://github.com/protofire/solhint)
-- [Prettier](https://github.com/prettier-solidity/prettier-plugin-solidity)
-- [Coverage](https://github.com/sc-forks/solidity-coverage)
-- [Gas reporter](https://github.com/cgewecke/hardhat-gas-reporter/tree/master)
-- [Commitlint](https://github.com/conventional-changelog/commitlint)
-- [Standard version](https://github.com/conventional-changelog/standard-version)
-- [Uniswap](https://github.com/Uniswap/uniswap-v2-periphery) + [Internal tooling](./test/utils/uniswap.ts)
+MakerDAO can setup the DAI vest, and may vary the buffer thresholds.
 
----
+### Keep3rJob Credits
 
-## Commands
+A Keep3rJob will be replenished with DAI credits everytime it has less DAI than `minBuffer`, and will replenish it up to `maxBuffer`, or the remaining amount of DAI.
 
-### **Coverage**
+### Upkeep Mechanism
 
-```bash
-yarn coverage
-```
-
-Runs solidity code coverage
-<br/>
-
-### **Fork**
-
-```bash
-yarn fork
-```
-
-Runs a mainnet fork via hardhat's node forking util.
-
-```bash
-yarn fork:script {path}
-```
-
-Runs the script in mainnet's fork.
-
-```
-yarn fork:test
-```
-
-Runs tests that should be run in mainnet's fork.
-<br/>
-
-### **Lint**
-
-```bash
-yarn lint
-```
-
-Runs solhint.
-<br/>
-
-### **Prettier (lint fix)**
-
-```bash
-yarn lint:fix
-```
-
-Runs prettier
-<br/>
-
-### **Release**
-
-```bash
-yarn release
-```
-
-Runs standard changelog, changes package.json version and modifies CHANGELOG.md accordingly.
-<br/>
-
-### **Test**
-
-```bash
-yarn test:all
-```
-
-Runs all solidity tests.
-<br/>
-
-```bash
-yarn test:unit
-```
-
-Runs all solidity tests in folder [unit](./test/unit)
-<br/>
-
-```bash
-yarn test:e2e
-```
-
-Runs all solidity tests in folder [e2e](./test/e2e)
-<br/>
-
-### **Gas report**
-
-```bash
-yarn test:gas
-```
-
-Runs all tests and report gas usage.
+The Keep3rJob can also trigger the `claimDaiUpkeep` function, allowing a keeper to perform the task, being payed an amount in DAI for the spent gas. In that way, there will always be enough DAI for somebody to cleanse the vest and earn their reward.
