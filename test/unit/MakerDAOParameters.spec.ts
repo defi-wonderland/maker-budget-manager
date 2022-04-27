@@ -15,6 +15,7 @@ describe('MakerDAOParameters', () => {
   let maker: JsonRpcSigner;
 
   let dssVest: FakeContract<IDssVest>;
+  const MAKER_DAO = '0xBE8E3e3618f7474F8cB1d074A26afFef007E98FB';
   const DSS_VEST = '0x2Cc583c0AaCDaC9e23CB601fDA8F1A0c56Cdcb71';
 
   const newMinBuffer = toUnit(1_000);
@@ -22,8 +23,7 @@ describe('MakerDAOParameters', () => {
   const newVestId = 42;
 
   before(async () => {
-    // TODO: replace for MakerDAO provided address
-    maker = await wallet.impersonate('0x6B175474E89094C44Da98b954EedeAC495271d0F');
+    maker = await wallet.impersonate(MAKER_DAO);
     await wallet.setBalance({ account: maker._address, balance: toUnit(1) });
 
     parametersFactory = (await ethers.getContractFactory('MakerDAOParameters', maker)) as MakerDAOParameters__factory;

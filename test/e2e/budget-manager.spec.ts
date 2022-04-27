@@ -12,7 +12,7 @@ import { getNodeUrl } from 'utils/env';
 import forkBlockNumber from './fork-block-numbers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 
-const makerAddress = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
+const makerAddress = '0xBE8E3e3618f7474F8cB1d074A26afFef007E98FB';
 const daiWhaleAddress = '0x16463c0fdb6ba9618909f5b120ea1581618c1b9e';
 const vestProxyAddress = '0xBE8E3e3618f7474F8cB1d074A26afFef007E98FB';
 
