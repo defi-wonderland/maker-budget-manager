@@ -74,7 +74,7 @@ describe('MakerDAOBudgetManager @skip-on-coverage', () => {
     await keep3r.addJob(job.address);
 
     // NOTE: MakerDAO needs to add vestID after vest was created
-    await budgetManager.connect(maker).setVestId(vestID);
+    await budgetManager.connect(governance).setVestId(vestID);
     // NOTE: Using test deployed job
     await budgetManager.connect(governance).setKeep3rJob(keep3r.address, job.address);
     await budgetManager.connect(governance).setKeeper(job.address);

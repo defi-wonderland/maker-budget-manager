@@ -16,7 +16,6 @@
 pragma solidity >=0.8.4 <0.9.0;
 
 import './MakerDAOParameters.sol';
-import './utils/Governable.sol';
 import './utils/DustCollector.sol';
 
 import '../interfaces/IMakerDAOBudgetManager.sol';
@@ -26,7 +25,7 @@ import '../interfaces/external/IDssVest.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/utils/math/Math.sol';
 
-contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Governable, DustCollector {
+contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, DustCollector {
   address public override keep3r = 0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC;
   address public override job = 0x5D469E1ef75507b0E0439667ae45e280b9D81B9C;
   address public override keeper;
@@ -150,6 +149,15 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Go
     keeper = _keeper;
 
     emit KeeperSet(_keeper);
+  }
+
+  /// @inheritdoc IMakerDAOBudgetManager
+  function setVestId(uint256 _vestId) public onlyGovernor {
+    (address _usr, uint48 _bgn, uint48 _clf, uint48 _fin, , , uint128 _tot, ) = IDssVest(DSS_VEST).awards(_vestId);
+    if (_usr != address(this)) revert IncorrectVestId();
+    vestId = _vestId;
+
+    emit VestSet(_vestId, _bgn, _clf, _fin, _tot);
   }
 
   // Modifiers

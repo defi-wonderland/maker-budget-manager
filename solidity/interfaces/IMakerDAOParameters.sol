@@ -11,19 +11,8 @@ interface IMakerDAOParameters {
   /// @param _minBuffer Minimum amount to DAI to be claimable
   /// @param _maxBuffer Maximum amount to DAI to be claimable
   event BufferSet(uint256 _minBuffer, uint256 _maxBuffer);
-
-  /// @notice Emitted when Maker sets a new vest
-  /// @param _vestId The ID of the new vest
-  /// @param _bgn The start timestamp of the vest
-  /// @param _clf The cliff timestamp of the vest
-  /// @param _fin The end timestamp of the vest
-  /// @param _tot The total amount of DAI on the vest
-  event VestSet(uint256 indexed _vestId, uint48 _bgn, uint48 _clf, uint48 _fin, uint128 _tot);
-
   // Errors
 
-  /// @notice Throws when the provided vest ID doesn't have contract as beneficiary
-  error IncorrectVestId();
   /// @notice Throws when an unallowed address tries to trigger Maker methods
   error OnlyMaker();
 
@@ -60,7 +49,4 @@ interface IMakerDAOParameters {
 
   /// @notice Allows Maker to set the buffer thresholds
   function setBuffer(uint256 _minBuffer, uint256 _maxBuffer) external;
-
-  /// @notice Allows Maker to set the vest ID
-  function setVestId(uint256 _vestId) external;
 }

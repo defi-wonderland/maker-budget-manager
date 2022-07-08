@@ -11,6 +11,7 @@ import { ethers } from 'hardhat';
 chai.use(smock.matchers);
 
 const JOB_ADDRESS = wallet.generateRandomAddress();
+const newVestId = 42;
 
 describe('MakerDAOBudgetManager', () => {
   let governor: SignerWithAddress;
@@ -30,7 +31,7 @@ describe('MakerDAOBudgetManager', () => {
   const KEEP3R_ADDRESS = '0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC';
   const JOB_ADDRESS = '0x5D469E1ef75507b0E0439667ae45e280b9D81B9C';
   const DAI_ADDRESS = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
-  const VEST_ADDRESS = '0x2Cc583c0AaCDaC9e23CB601fDA8F1A0c56Cdcb71';
+  const VEST_ADDRESS = '0xa4c22f0e25C6630B2017979AcF1f865e94695C4b';
   const JOIN_ADDRESS = '0x9759A6Ac90977b93B58547b4A71c78317f391A28';
   const VOW_ADDRESS = '0xA950524441892A31ebddF91d3cEEFa04Bf454466';
 
@@ -367,6 +368,53 @@ describe('MakerDAOBudgetManager', () => {
       tx = await budgetManager.connect(governor).setKeeper(randomKeeper);
 
       await expect(tx).to.emit(budgetManager, 'KeeperSet').withArgs(randomKeeper);
+    });
+  });
+
+  describe('setVestId', () => {
+    let tx: Transaction;
+    const randomAddress = wallet.generateRandomAddress();
+
+    it('should fail if vestId is inexistent', async () => {
+      await expect(budgetManager.connect(governor).setVestId(newVestId)).to.be.revertedWith('IncorrectVestId');
+    });
+
+    it('should fail if vestId is incorrect', async () => {
+      vest.awards.returns([randomAddress, 0, 0, 0, randomAddress, 0, 0, 0]);
+
+      await expect(budgetManager.connect(governor).setVestId(newVestId)).to.be.revertedWith('IncorrectVestId');
+    });
+
+    context('when vestId is correct', () => {
+      beforeEach(async () => {
+        vest.awards.returns([budgetManager.address, 0, 0, 0, randomAddress, 0, 0, 0]);
+      });
+
+      onlyGovernor(
+        () => budgetManager,
+        'setVestId',
+        () => governor,
+        () => [newVestId]
+      );
+
+      it('should set the specified vestId', async () => {
+        await budgetManager.connect(governor).setVestId(newVestId);
+
+        expect(await budgetManager.vestId()).to.be.eq(newVestId);
+      });
+
+      it('should emit event', async () => {
+        const BEGIN = 10;
+        const CLIFF = 20;
+        const FIN = 30;
+        const TOTAL = 40;
+
+        vest.awards.returns([budgetManager.address, BEGIN, CLIFF, FIN, randomAddress, 0, TOTAL, 0]);
+
+        tx = await budgetManager.connect(governor).setVestId(newVestId);
+
+        await expect(tx).to.be.emit(budgetManager, 'VestSet').withArgs(newVestId, BEGIN, CLIFF, FIN, TOTAL);
+      });
     });
   });
 });

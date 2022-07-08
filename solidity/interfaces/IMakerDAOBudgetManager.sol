@@ -34,6 +34,14 @@ interface IMakerDAOBudgetManager {
   /// @param _keeper The address allowed to upkeep the claim function
   event KeeperSet(address _keeper);
 
+  /// @notice Emitted when Maker sets a new vest
+  /// @param _vestId The ID of the new vest
+  /// @param _bgn The start timestamp of the vest
+  /// @param _clf The cliff timestamp of the vest
+  /// @param _fin The end timestamp of the vest
+  /// @param _tot The total amount of DAI on the vest
+  event VestSet(uint256 indexed _vestId, uint48 _bgn, uint48 _clf, uint48 _fin, uint128 _tot);
+
   // Errors
 
   /// @notice Throws when the vested DAI is less than MinBuffer
@@ -42,6 +50,8 @@ interface IMakerDAOBudgetManager {
   error InvoiceClaimed();
   /// @notice Throws when an unallowed address tries to trigger upkeep
   error OnlyKeeper();
+  /// @notice Throws when the provided vest ID doesn't have contract as beneficiary
+  error IncorrectVestId();
 
   // Views
 
@@ -100,4 +110,8 @@ interface IMakerDAOBudgetManager {
   /// @notice Allows Governor to set new Keeeper
   /// @param _keeper The address allowed to upkeep the claim function
   function setKeeper(address _keeper) external;
+
+  /// @notice Allows Governor to set the vest ID
+  /// @param _vestId The numeric ID of the vest
+  function setVestId(uint256 _vestId) external;
 }
