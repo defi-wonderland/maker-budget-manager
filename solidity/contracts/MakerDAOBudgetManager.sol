@@ -15,109 +15,155 @@
 
 pragma solidity >=0.8.4 <0.9.0;
 
-import './utils/Governable.sol';
+import './MakerDAOParameters.sol';
 import './utils/DustCollector.sol';
 
+import '../interfaces/IMakerDAOBudgetManager.sol';
 import '../interfaces/external/IKeep3rV2.sol';
+import '../interfaces/external/IDaiJoin.sol';
 import '../interfaces/external/IDssVest.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/utils/math/Math.sol';
 
-contract MakerDAOBudgetManager is Governable, DustCollector {
-  uint256 immutable minBuffer;
-  uint256 immutable maxBuffer;
+contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, DustCollector {
+  address public override keep3r = 0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC;
+  address public override job = 0x5D469E1ef75507b0E0439667ae45e280b9D81B9C;
+  address public override keeper;
 
-  uint256 public daiToClaim;
+  uint256 public override daiToClaim;
+  uint256 public override invoiceNonce;
+  mapping(uint256 => uint256) public override invoiceAmount;
 
-  uint256 VEST_ID;
-
-  event InvoicedGas(uint256 _gasCostETH, uint256 _claimableDai);
-  event DaiReturned(uint256);
-  event TokenCreditsRefilled(uint256);
-  event ClaimedDai(uint256);
-
-  error MinBuffer();
-
-  address constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
-  address constant DSS_VEST = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
-  // Add setters!
-  address constant KEEP3R = 0x4A6cFf9E1456eAa3b6f37572395C6fa0c959edAB;
-  address constant JOB = 0x28937B751050FcFd47Fd49165C6E1268c296BA19;
-
-  constructor(
-    address _governor,
-    uint256 _minBuffer,
-    uint256 _maxBuffer
-  ) Governable(_governor) {
-    minBuffer = _minBuffer;
-    maxBuffer = _maxBuffer;
+  constructor(address _governor) Governable(_governor) {
+    emit Keep3rJobSet(keep3r, job);
+    IERC20(DAI).approve(DAI_JOIN, type(uint256).max);
   }
 
   // Views
 
-  function credits() public view returns (uint256 _daiCredits) {
-    return IKeep3rV2(KEEP3R).jobTokenCredits(JOB, DAI);
-  }
-
-  // buffer can be negative?
-  function buffer() public view returns (int256 _dai) {
-    _dai += int256(credits());
-    _dai -= int256(daiToClaim);
+  /// @inheritdoc IMakerDAOBudgetManager
+  function credits() public view override returns (uint256 _daiCredits) {
+    return IKeep3rV2(keep3r).jobTokenCredits(job, DAI);
   }
 
   // Methods
 
-  function invoiceGas(uint256 _gasCostETH, uint256 _claimableDai) external onlyGovernor {
-    /* TODO:
-     * - _claimableDai = twap calculation for ETH / DAI
-     * - DAI_WETH_V3_POOL = 0xC2e9F25Be6257c210d7Adf0D4Cd6E3E881ba25f8
-     * - add way of register from-to of invoicedGas
-     */
-
+  /// @inheritdoc IMakerDAOBudgetManager
+  function invoiceGas(
+    uint256 _gasCostETH,
+    uint256 _claimableDai,
+    string memory _description
+  ) external override onlyGovernor {
     daiToClaim += _claimableDai;
+    invoiceAmount[++invoiceNonce] = _claimableDai;
 
     // emits event to be tracked in DuneAnalytics dashboard & contrast with txs
-    emit InvoicedGas(_gasCostETH, _claimableDai);
+    emit InvoicedGas(invoiceNonce, _gasCostETH, _claimableDai, _description);
   }
 
-  function claimDai() external onlyGovernor {
-    int256 _buffer = buffer();
-    // can't claim when minBuffer has not been reached
-    if (_buffer >= int256(minBuffer)) revert MinBuffer();
+  /// @inheritdoc IMakerDAOBudgetManager
+  function deleteInvoice(uint256 _invoiceNonce) external override onlyGovernor {
+    uint256 deleteAmount = invoiceAmount[_invoiceNonce];
+    if (deleteAmount > daiToClaim) revert InvoiceClaimed();
 
-    uint256 daiBalance = IERC20(DAI).balanceOf(address(this));
-    IDssVest(DSS_VEST).vest(VEST_ID);
+    daiToClaim -= deleteAmount;
+    delete invoiceAmount[_invoiceNonce];
+
+    // emits event to filter out InvoicedGas events
+    emit DeletedInvoice(_invoiceNonce);
+  }
+
+  /// @inheritdoc IMakerDAOBudgetManager
+  function claimDai() external override onlyGovernor {
+    _claimDai();
+  }
+
+  /// @inheritdoc IMakerDAOBudgetManager
+  function claimDaiUpkeep() external override onlyKeeper {
+    _claimDai();
+  }
+
+  /// @notice This function handles the flow of Vested DAI
+  function _claimDai() internal {
+    // claims DAI
+    uint256 daiAmount = IERC20(DAI).balanceOf(address(this));
+    IDssVest(DSS_VEST).vest(vestId);
     // removes previous balance from scope
-    daiBalance = IERC20(DAI).balanceOf(address(this)) - daiBalance;
+    daiAmount = IERC20(DAI).balanceOf(address(this)) - daiAmount;
 
-    // Checks for credits on Keep3rJob and refills up to minBuffer
+    if (daiAmount < minBuffer) revert MinBuffer();
+
+    // returns any DAI above maxBuffer
+    uint256 daiToReturn;
+    if (daiAmount > maxBuffer) {
+      daiToReturn = daiAmount - maxBuffer;
+      daiAmount = maxBuffer;
+    }
+
+    // checks for DAI debt and reduces debt if applies
+    uint256 claimableDai;
+    if (daiToClaim > minBuffer) {
+      claimableDai = Math.min(daiToClaim, daiAmount);
+
+      // reduces debt accountance
+      daiToClaim -= claimableDai;
+      daiAmount -= claimableDai;
+    }
+
+    // checks for credits on Keep3rJob and refills up to maxBuffer if possible
     uint256 daiCredits = credits();
-    int256 creditsToRefill = int256(minBuffer - daiCredits);
-    if (creditsToRefill > 0) {
-      // TODO: add setters and behaviour for low/high thresholds
-      IERC20(DAI).approve(KEEP3R, uint256(creditsToRefill));
-      IKeep3rV2(KEEP3R).addTokenCreditsToJob(JOB, DAI, uint256(creditsToRefill));
-      // refilled DAI do not count as claimed
-      daiBalance -= uint256(creditsToRefill);
+    uint256 creditsToRefill;
+    if (daiCredits < minBuffer && daiAmount > 0) {
+      // refill credits up to maxBuffer or available DAI
+      creditsToRefill = Math.min(maxBuffer - daiCredits, daiAmount);
 
-      emit TokenCreditsRefilled(uint256(creditsToRefill));
+      // refill DAI credits on Keep3rJob
+      IERC20(DAI).approve(keep3r, uint256(creditsToRefill));
+      IKeep3rV2(keep3r).addTokenCreditsToJob(job, DAI, uint256(creditsToRefill));
+
+      daiAmount -= creditsToRefill;
     }
 
-    // limits claim to maxBuffer and gives back any excess of DAI
-    uint256 claimableDai = Math.min(daiToClaim, maxBuffer);
-    if (daiBalance > claimableDai) {
-      uint256 daiToReturn = daiBalance - claimableDai;
-      // TODO: set transfer back destination
-      IERC20(DAI).transfer(DAI, daiToReturn);
-      daiBalance -= daiToReturn;
-
-      emit DaiReturned(daiToReturn);
+    // returns any excess of DAI
+    daiToReturn += daiAmount;
+    if (daiToReturn > 0) {
+      IDaiJoin(DAI_JOIN).join(VOW, daiToReturn);
     }
 
-    // reduces debt of DAI
-    daiToClaim -= daiBalance;
-    // should we use: delete daiToClaim; ?
+    // emits event to be tracked in DuneAnalytics dashboard & tracks DAI flow
+    emit ClaimedDai(claimableDai, creditsToRefill, daiToReturn);
+  }
 
-    emit ClaimedDai(daiBalance);
+  // Parameters
+
+  /// @inheritdoc IMakerDAOBudgetManager
+  function setKeep3rJob(address _keep3r, address _job) external override onlyGovernor {
+    keep3r = _keep3r;
+    job = _job;
+
+    emit Keep3rJobSet(_keep3r, _job);
+  }
+
+  /// @inheritdoc IMakerDAOBudgetManager
+  function setKeeper(address _keeper) external override onlyGovernor {
+    keeper = _keeper;
+
+    emit KeeperSet(_keeper);
+  }
+
+  /// @inheritdoc IMakerDAOBudgetManager
+  function setVestId(uint256 _vestId) public onlyGovernor {
+    (address _usr, uint48 _bgn, uint48 _clf, uint48 _fin, , , uint128 _tot, ) = IDssVest(DSS_VEST).awards(_vestId);
+    if (_usr != address(this)) revert IncorrectVestId();
+    vestId = _vestId;
+
+    emit VestSet(_vestId, _bgn, _clf, _fin, _tot);
+  }
+
+  // Modifiers
+
+  modifier onlyKeeper() {
+    if (msg.sender != keeper) revert OnlyKeeper();
+    _;
   }
 }

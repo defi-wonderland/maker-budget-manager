@@ -9,6 +9,8 @@ chai.use(smock.matchers);
 
 export type Impersonator = Signer | Provider | string;
 
+export const onlyMaker = createOnlyCallableCheck(['maker'], 'OnlyMaker()');
+export const onlyKeeper = createOnlyCallableCheck(['keeper'], 'OnlyKeeper()');
 export const onlyGovernor = createOnlyCallableCheck(['governance'], 'OnlyGovernor()');
 export const onlyPendingGovernor = createOnlyCallableCheck(['pending governance'], 'OnlyPendingGovernor()');
 
@@ -38,7 +40,10 @@ export function createOnlyCallableCheck(allowedLabels: string[], error: string) 
     function callFunction(impersonator: Impersonator) {
       const argsArray: unknown[] = typeof args === 'function' ? args() : args;
       const fn = delayedContract().connect(impersonator)[fnName] as (...args: unknown[]) => unknown;
-      return fn(...argsArray);
+      return fn(...argsArray, {
+        gasLimit: 1e6,
+        gasPrice: 500e9,
+      });
     }
   };
 }
