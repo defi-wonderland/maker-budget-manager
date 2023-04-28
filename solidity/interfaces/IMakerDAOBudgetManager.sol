@@ -20,9 +20,8 @@ interface IMakerDAOBudgetManager {
   /// @notice Emitted when the DAI vest mechanism is executed
   /// @param _claimed The amount of DAI used to reduce invoice debt
   /// @param _refilled The amount of DAI sent to the Keep3rJob to refill credits
-  /// @param _returned The amount of DAI returned to Maker
   /// @dev The total sum _claimed + _refilled + _returned should be equivalent to vested DAI
-  event ClaimedDai(uint256 _claimed, uint256 _refilled, uint256 _returned);
+  event ClaimedDai(uint256 _claimed, uint256 _refilled);
 
   /// @notice Emitted when Governor changes the Keep3r and Job addresses
   /// @param _keep3r The address of Keep3r where the job is registered
@@ -34,36 +33,34 @@ interface IMakerDAOBudgetManager {
   /// @param _keeper The address allowed to upkeep the claim function
   event KeeperSet(address _keeper);
 
-  /// @notice Emitted when Maker sets a new vest
-  /// @param _vestId The ID of the new vest
-  /// @param _bgn The start timestamp of the vest
-  /// @param _clf The cliff timestamp of the vest
-  /// @param _fin The end timestamp of the vest
-  /// @param _tot The total amount of DAI on the vest
-  event VestSet(uint256 indexed _vestId, uint48 _bgn, uint48 _clf, uint48 _fin, uint128 _tot);
+  /// @notice Emitted when new network payment adapter has been setted
+  /// @param _networkPaymentAdapter The address of the network payment adapter
+  event NetworkPaymentAdapterSet(address _networkPaymentAdapter);
 
   // Errors
 
-  /// @notice Throws when the vested DAI is less than MinBuffer
-  error MinBuffer();
   /// @notice Throws when the invoice to be deleted has already been claimed
-  error InvoiceClaimed();
+  error IMakerDAOBudgetManager_InvoiceClaimed();
   /// @notice Throws when an unallowed address tries to trigger upkeep
-  error OnlyKeeper();
-  /// @notice Throws when the provided vest ID doesn't have contract as beneficiary
-  error IncorrectVestId();
+  error IMakerDAOBudgetManager_OnlyKeeper();
 
   // Views
+
+  /// @notice The address of DAI
+  function DAI() external view returns (address _dai);
 
   /// @notice Sum of invoiced DAI amount minus already claimed DAI
   /// @return _dai The amount of DAI currently in debt to the contract
   function daiToClaim() external returns (uint256 _dai);
 
-  /// @return _keep3r The address of Keep3r where the job is registered
-  function keep3r() external returns (address _keep3r);
+  /// @return _networkPaymentAdapter
+  function networkPaymentAdapter() external returns (address _networkPaymentAdapter);
 
   /// @return _job The address of the Job contract
   function job() external returns (address _job);
+
+  /// @return _keep3r The address of Keep3r where the job is registered
+  function keep3r() external returns (address _keep3r);
 
   /// @return _keeper The address allowed to upkeep the claim function
   function keeper() external returns (address _keeper);
@@ -74,11 +71,12 @@ interface IMakerDAOBudgetManager {
   function invoiceAmount(uint256 _invoiceNonce) external returns (uint256 _invoiceDai);
 
   /// @notice Current invoice nonce
-  function invoiceNonce() external returns (uint256);
+  /// @param _currentNonce The index of the current nonce
+  function invoiceNonce() external returns (uint256 _currentNonce);
 
   /// @notice Amount of credits available
   /// @return _daiCredits The amount of DAI credits on the Keep3r Job
-  function credits() external view returns (uint256 _daiCredits);
+  function getDaiCredits() external view returns (uint256 _daiCredits);
 
   // Methods
 
@@ -111,7 +109,7 @@ interface IMakerDAOBudgetManager {
   /// @param _keeper The address allowed to upkeep the claim function
   function setKeeper(address _keeper) external;
 
-  /// @notice Allows Governor to set the vest ID
-  /// @param _vestId The numeric ID of the vest
-  function setVestId(uint256 _vestId) external;
+  /// @notice Allows Governor to set new network payment adapter
+  /// @param _networkPaymentAdapter The address of the network payment adapter
+  function setNetworkPaymentAdapter(address _networkPaymentAdapter) external;
 }

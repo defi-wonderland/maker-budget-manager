@@ -1,47 +1,38 @@
 import { FakeContract, MockContract, smock } from '@defi-wonderland/smock';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
-import { MakerDAOBudgetManager, MakerDAOBudgetManager__factory, IKeep3rV2, IERC20, IDssVest, IDaiJoin } from '@typechained';
+import { MakerDAOBudgetManager, MakerDAOBudgetManager__factory, IKeep3rV2, IERC20, INetworkPaymentAdapter } from '@typechained';
 import { evm, wallet } from '@utils';
 import { onlyGovernor, onlyKeeper } from '@utils/behaviours';
 import { toUnit } from '@utils/bn';
 import chai, { expect } from 'chai';
 import { BigNumber, Transaction } from 'ethers';
 import { ethers } from 'hardhat';
-
 chai.use(smock.matchers);
-
-const JOB_ADDRESS = wallet.generateRandomAddress();
-const newVestId = 42;
 
 describe('MakerDAOBudgetManager', () => {
   let governor: SignerWithAddress;
   let keeper: SignerWithAddress;
   let dai: FakeContract<IERC20>;
   let keep3r: FakeContract<IKeep3rV2>;
-  let vest: FakeContract<IDssVest>;
-  let daiJoin: FakeContract<IDaiJoin>;
+  let networkPaymentAdapter: FakeContract<INetworkPaymentAdapter>;
 
   let budgetManager: MockContract<MakerDAOBudgetManager>;
 
   let snapshotId: string;
 
-  const MIN_BUFFER = toUnit(4_000);
   const MAX_BUFFER = toUnit(20_000);
 
   const KEEP3R_ADDRESS = '0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC';
   const JOB_ADDRESS = '0x5D469E1ef75507b0E0439667ae45e280b9D81B9C';
   const DAI_ADDRESS = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
-  const VEST_ADDRESS = '0xa4c22f0e25C6630B2017979AcF1f865e94695C4b';
-  const JOIN_ADDRESS = '0x9759A6Ac90977b93B58547b4A71c78317f391A28';
-  const VOW_ADDRESS = '0xA950524441892A31ebddF91d3cEEFa04Bf454466';
+  const NPA_ADDRESS = '0xaeFed819b6657B3960A8515863abe0529Dfc444A';
 
   before(async () => {
     [, governor, keeper] = await ethers.getSigners();
 
     keep3r = await smock.fake<IKeep3rV2>('IKeep3rV2', { address: KEEP3R_ADDRESS });
     dai = await smock.fake<IERC20>('IERC20', { address: DAI_ADDRESS });
-    vest = await smock.fake<IDssVest>('IDssVest', { address: VEST_ADDRESS });
-    daiJoin = await smock.fake<IDaiJoin>('IDaiJoin', { address: JOIN_ADDRESS });
+    networkPaymentAdapter = await smock.fake<INetworkPaymentAdapter>('INetworkPaymentAdapter', { address: NPA_ADDRESS });
 
     const budgetManagerFactory = await smock.mock<MakerDAOBudgetManager__factory>('MakerDAOBudgetManager');
     budgetManager = await budgetManagerFactory.deploy(governor.address);
@@ -130,31 +121,10 @@ describe('MakerDAOBudgetManager', () => {
   describe('claimDai', () => {
     let tx: Transaction;
 
-    context('when transferred DAI is less than minBuffer', () => {
-      const DAI_TRANSFERRED = toUnit(1000);
-
-      beforeEach(async () => {
-        dai.balanceOf.returnsAtCall(0, 0);
-        dai.balanceOf.returnsAtCall(1, DAI_TRANSFERRED);
-      });
-
-      it('should revert', async () => {
-        await expect(budgetManager.connect(governor).claimDai()).to.be.revertedWith('MinBuffer');
-      });
-    });
-
     context('when transferred DAI is greater than minBuffer', () => {
-      const DAI_TRANSFERRED = toUnit(10_000);
-
       beforeEach(async () => {
-        dai.balanceOf.reset();
-        daiJoin.join.reset();
-        keep3r.jobTokenCredits.reset();
-        vest['vest(uint256)'].reset();
-
-        dai.balanceOf.returnsAtCall(0, 0);
-        dai.balanceOf.returnsAtCall(1, DAI_TRANSFERRED);
-        keep3r.jobTokenCredits.returns(MIN_BUFFER); // no need to act
+        networkPaymentAdapter['topUp'].reset();
+        await budgetManager.connect(governor).claimDai();
       });
 
       onlyGovernor(
@@ -164,153 +134,110 @@ describe('MakerDAOBudgetManager', () => {
         () => []
       );
 
-      it('should query DAI balance twice', async () => {
-        await budgetManager.connect(governor).claimDai();
-        expect(dai.balanceOf).to.have.been.calledTwice;
-        expect(dai.balanceOf).to.have.been.calledWith(budgetManager.address);
+      it('should call NPA topUp', async () => {
+        expect(networkPaymentAdapter['topUp']).to.have.been.called;
       });
+    });
 
-      it('should call DSS Vest', async () => {
+    context('when DAI debt is smaller than dai streamed', async () => {
+      const DAI_TO_CLAIM = toUnit(5_000);
+      const DAI_TO_STREAMED = toUnit(1_000);
+      beforeEach(async () => {
+        networkPaymentAdapter.topUp.returns(DAI_TO_STREAMED);
+        await budgetManager.setVariable('daiToClaim', DAI_TO_CLAIM);
         tx = await budgetManager.connect(governor).claimDai();
-        expect(vest['vest(uint256)']).to.have.been.calledOnce;
       });
 
-      it('should query DAI credits on Keep3r', async () => {
+      it('should reduce DAI debt', async () => {
+        expect(await budgetManager.daiToClaim()).to.be.eq(DAI_TO_CLAIM.sub(DAI_TO_STREAMED));
+      });
+
+      it('should not refill credits', async () => {
+        expect(dai.approve).to.not.have.been.called;
+        expect(keep3r.addTokenCreditsToJob).to.not.have.been.called;
+      });
+
+      it('should emit event', async () => {
+        await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(DAI_TO_STREAMED, 0);
+      });
+    });
+
+    context('when DAI debt is equal to dai streamed', () => {
+      const DAI_TO_CLAIM = toUnit(5_000);
+      const DAI_TO_STREAMED = DAI_TO_CLAIM;
+      beforeEach(async () => {
+        networkPaymentAdapter.topUp.returns(DAI_TO_STREAMED);
+        await budgetManager.setVariable('daiToClaim', DAI_TO_CLAIM);
+        tx = await budgetManager.connect(governor).claimDai();
+      });
+
+      it('should reduce DAI debt to 0', async () => {
+        expect(await budgetManager.daiToClaim()).to.be.eq(0);
+      });
+
+      it('should not refill credits', async () => {
+        expect(dai.approve).to.not.have.been.called;
+        expect(keep3r.addTokenCreditsToJob).to.not.have.been.called;
+      });
+
+      it('should emit event', async () => {
+        await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(DAI_TO_STREAMED, 0);
+      });
+    });
+
+    context('when DAI credits should be refilled', () => {
+      const DAI_TO_STREAMED = toUnit(10_000);
+      const DAI_TO_CLAIM = toUnit(5_000);
+      beforeEach(async () => {
+        dai.approve.reset();
+        keep3r.addTokenCreditsToJob.reset();
+        await budgetManager.setVariable('daiToClaim', DAI_TO_CLAIM);
+        networkPaymentAdapter.topUp.returns(DAI_TO_STREAMED);
         await budgetManager.connect(governor).claimDai();
-        expect(keep3r.jobTokenCredits).to.have.been.calledOnceWith(JOB_ADDRESS, DAI_ADDRESS);
       });
 
-      it('should return all DAI if there are no debts', async () => {
+      it('should reduce DAI debt', async () => {
+        expect(await budgetManager.daiToClaim()).to.be.eq(0);
+      });
+
+      it('should call DAI approve once', async () => {
+        expect(dai.approve).to.have.been.calledOnceWith(KEEP3R_ADDRESS, DAI_TO_STREAMED.sub(DAI_TO_CLAIM));
+      });
+
+      it('should refill DAI credits', async () => {
+        expect(keep3r.addTokenCreditsToJob).to.have.been.calledOnceWith(JOB_ADDRESS, DAI_ADDRESS, DAI_TO_STREAMED.sub(DAI_TO_CLAIM));
+      });
+
+      it('should emit event', async () => {
+        await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(DAI_TO_CLAIM, DAI_TO_STREAMED.sub(DAI_TO_CLAIM));
+      });
+    });
+
+    context('when DAI streamed is greater than refilled plus claim', () => {
+      const DAI_TO_STREAMED = toUnit(40_000);
+      const DAI_TO_CLAIM = toUnit(5_000);
+      beforeEach(async () => {
+        dai.approve.reset();
+        keep3r.addTokenCreditsToJob.reset();
+        await budgetManager.setVariable('daiToClaim', DAI_TO_CLAIM);
+        networkPaymentAdapter.topUp.returns(DAI_TO_STREAMED);
         await budgetManager.connect(governor).claimDai();
-        expect(daiJoin.join).to.have.been.calledOnceWith(VOW_ADDRESS, DAI_TRANSFERRED);
       });
 
-      context('when there is DAI debt', () => {
-        context('when DAI debt is less than minBuffer', () => {
-          const DAI_TO_CLAIM = toUnit(1000);
-
-          beforeEach(async () => {
-            await budgetManager.setVariable('daiToClaim', DAI_TO_CLAIM);
-            tx = await budgetManager.connect(governor).claimDai();
-          });
-
-          it('should not reduce DAI debt', async () => {
-            expect(await budgetManager.daiToClaim()).to.be.eq(DAI_TO_CLAIM);
-          });
-
-          it('should emit event', async () => {
-            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, 0, DAI_TRANSFERRED);
-          });
-        });
-
-        context('when DAI debt is greater than minBuffer', () => {
-          const DAI_TO_CLAIM = toUnit(5000);
-          beforeEach(async () => {
-            await budgetManager.setVariable('daiToClaim', DAI_TO_CLAIM);
-            tx = await budgetManager.connect(governor).claimDai();
-          });
-
-          it('should reduce DAI debt', async () => {
-            expect(await budgetManager.daiToClaim()).to.be.eq(0);
-          });
-
-          it('should return any excess of DAI', async () => {
-            expect(daiJoin.join).to.have.been.calledOnceWith(VOW_ADDRESS, DAI_TRANSFERRED.sub(DAI_TO_CLAIM));
-          });
-
-          it('should emit event', async () => {
-            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(DAI_TO_CLAIM, 0, DAI_TRANSFERRED.sub(DAI_TO_CLAIM));
-          });
-        });
-
-        context('when DAI debt is greater than transferred DAI', () => {
-          const DAI_TO_CLAIM = toUnit(15_000);
-          beforeEach(async () => {
-            await budgetManager.setVariable('daiToClaim', DAI_TO_CLAIM);
-            tx = await budgetManager.connect(governor).claimDai();
-          });
-
-          it('should reduce DAI debt by transferred DAI', async () => {
-            expect(await budgetManager.daiToClaim()).to.be.eq(DAI_TO_CLAIM.sub(DAI_TRANSFERRED));
-          });
-
-          it('should emit event', async () => {
-            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(DAI_TRANSFERRED, 0, 0);
-          });
-        });
-
-        context('when DAI transferred is greater than maxBuffer', () => {
-          const DAI_TO_CLAIM = toUnit(50_000);
-          const DAI_TRANSFERRED = toUnit(100_000);
-
-          beforeEach(async () => {
-            dai.balanceOf.reset();
-            dai.balanceOf.returnsAtCall(1, DAI_TRANSFERRED);
-
-            await budgetManager.setVariable('daiToClaim', DAI_TO_CLAIM);
-            tx = await budgetManager.connect(governor).claimDai();
-          });
-
-          it('should reduce DAI debt by maxBuffer DAI', async () => {
-            expect(await budgetManager.daiToClaim()).to.be.eq(DAI_TO_CLAIM.sub(MAX_BUFFER));
-          });
-
-          it('should return any excess of DAI', async () => {
-            expect(daiJoin.join).to.have.been.calledOnceWith(VOW_ADDRESS, DAI_TRANSFERRED.sub(MAX_BUFFER));
-          });
-
-          it('should emit event', async () => {
-            await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(MAX_BUFFER, 0, DAI_TRANSFERRED.sub(MAX_BUFFER));
-          });
-        });
+      it('should reduce DAI debt', async () => {
+        expect(await budgetManager.daiToClaim()).to.be.eq(0);
       });
 
-      context('when DAI credits should be refilled', () => {
-        beforeEach(async () => {
-          dai.approve.reset();
-          keep3r.addTokenCreditsToJob.reset();
-          keep3r.jobTokenCredits.reset();
-          keep3r.jobTokenCredits.returns(0);
-        });
-
-        it('should call DAI approve once', async () => {
-          await budgetManager.connect(governor).claimDai();
-          expect(dai.approve).to.have.been.calledOnceWith(KEEP3R_ADDRESS, DAI_TRANSFERRED);
-        });
-
-        it('should refill DAI credits', async () => {
-          await budgetManager.connect(governor).claimDai();
-          expect(keep3r.addTokenCreditsToJob).to.have.been.calledOnceWith(JOB_ADDRESS, DAI_ADDRESS, DAI_TRANSFERRED);
-        });
-
-        it('should return any excess of DAI', async () => {
-          daiJoin.join.reset();
-
-          const DAI_TRANSFERRED = toUnit(100_000);
-          dai.balanceOf.returnsAtCall(1, DAI_TRANSFERRED);
-
-          const CURRENT_CREDITS = toUnit(1_000);
-          keep3r.jobTokenCredits.returns(CURRENT_CREDITS);
-
-          await budgetManager.connect(governor).claimDai();
-
-          expect(daiJoin.join).to.have.been.calledOnceWith(VOW_ADDRESS, DAI_TRANSFERRED.sub(MAX_BUFFER.sub(CURRENT_CREDITS)));
-        });
-
-        it('should emit event', async () => {
-          tx = await budgetManager.connect(governor).claimDai();
-          await expect(tx).to.emit(budgetManager, 'ClaimedDai').withArgs(0, DAI_TRANSFERRED, 0);
-        });
+      it('should DAI credits be greater than max buffer', async () => {
+        expect(keep3r.addTokenCreditsToJob).to.have.been.calledWith(JOB_ADDRESS, DAI_ADDRESS, DAI_TO_STREAMED.sub(DAI_TO_CLAIM));
+        expect(DAI_TO_STREAMED.sub(DAI_TO_CLAIM)).to.be.greaterThan(MAX_BUFFER);
       });
     });
   });
 
   describe('claimUpkeep', () => {
-    const DAI_TRANSFERRED = toUnit(10_000);
     beforeEach(async () => {
       await budgetManager.connect(governor).setKeeper(keeper.address);
-      dai.balanceOf.returnsAtCall(0, 0);
-      dai.balanceOf.returnsAtCall(1, DAI_TRANSFERRED);
     });
 
     onlyKeeper(
@@ -371,50 +298,27 @@ describe('MakerDAOBudgetManager', () => {
     });
   });
 
-  describe('setVestId', () => {
+  describe('setNetworkPaymentAdapter', () => {
     let tx: Transaction;
-    const randomAddress = wallet.generateRandomAddress();
+    const randomNetworkPaymentAdapter = wallet.generateRandomAddress();
 
-    it('should fail if vestId is inexistent', async () => {
-      await expect(budgetManager.connect(governor).setVestId(newVestId)).to.be.revertedWith('IncorrectVestId');
+    onlyGovernor(
+      () => budgetManager,
+      'setNetworkPaymentAdapter',
+      () => governor,
+      () => [randomNetworkPaymentAdapter]
+    );
+
+    it('should set the keeper address', async () => {
+      await budgetManager.connect(governor).setNetworkPaymentAdapter(randomNetworkPaymentAdapter);
+
+      expect(await budgetManager.networkPaymentAdapter()).to.be.deep.eq(randomNetworkPaymentAdapter);
     });
 
-    it('should fail if vestId is incorrect', async () => {
-      vest.awards.returns([randomAddress, 0, 0, 0, randomAddress, 0, 0, 0]);
+    it('should emit event', async () => {
+      tx = await budgetManager.connect(governor).setNetworkPaymentAdapter(randomNetworkPaymentAdapter);
 
-      await expect(budgetManager.connect(governor).setVestId(newVestId)).to.be.revertedWith('IncorrectVestId');
-    });
-
-    context('when vestId is correct', () => {
-      beforeEach(async () => {
-        vest.awards.returns([budgetManager.address, 0, 0, 0, randomAddress, 0, 0, 0]);
-      });
-
-      onlyGovernor(
-        () => budgetManager,
-        'setVestId',
-        () => governor,
-        () => [newVestId]
-      );
-
-      it('should set the specified vestId', async () => {
-        await budgetManager.connect(governor).setVestId(newVestId);
-
-        expect(await budgetManager.vestId()).to.be.eq(newVestId);
-      });
-
-      it('should emit event', async () => {
-        const BEGIN = 10;
-        const CLIFF = 20;
-        const FIN = 30;
-        const TOTAL = 40;
-
-        vest.awards.returns([budgetManager.address, BEGIN, CLIFF, FIN, randomAddress, 0, TOTAL, 0]);
-
-        tx = await budgetManager.connect(governor).setVestId(newVestId);
-
-        await expect(tx).to.be.emit(budgetManager, 'VestSet').withArgs(newVestId, BEGIN, CLIFF, FIN, TOTAL);
-      });
+      await expect(tx).to.emit(budgetManager, 'NetworkPaymentAdapterSet').withArgs(randomNetworkPaymentAdapter);
     });
   });
 });
