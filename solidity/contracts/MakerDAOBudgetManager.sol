@@ -15,35 +15,59 @@
 
 pragma solidity >=0.8.4 <0.9.0;
 
-import './MakerDAOParameters.sol';
-import './utils/DustCollector.sol';
+import {DustCollector} from './utils/DustCollector.sol';
+import {Governable} from './utils/Governable.sol';
+import {Math} from '@openzeppelin/contracts/utils/math/Math.sol';
 
-import '../interfaces/IMakerDAOBudgetManager.sol';
-import '../interfaces/external/IKeep3rV2.sol';
-import '../interfaces/external/IDaiJoin.sol';
-import '../interfaces/external/IDssVest.sol';
-import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import '@openzeppelin/contracts/utils/math/Math.sol';
+import {IMakerDAOBudgetManager} from '../interfaces/IMakerDAOBudgetManager.sol';
+import {INetworkPaymentAdapter} from '../interfaces/external/INetworkPaymentAdapter.sol';
+import {INetworkTreasury} from '../interfaces/external/INetworkTreasury.sol';
+import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import {IKeep3rV2} from '../interfaces/external/IKeep3rV2.sol';
 
-contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, DustCollector {
+contract MakerDAOBudgetManager is IMakerDAOBudgetManager, INetworkTreasury, DustCollector {
+  /// @inheritdoc IMakerDAOBudgetManager
+  address public constant override DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
+
+  /// @inheritdoc IMakerDAOBudgetManager
   address public override keep3r = 0xeb02addCfD8B773A5FFA6B9d1FE99c566f8c44CC;
+
+  /// @inheritdoc IMakerDAOBudgetManager
   address public override job = 0x5D469E1ef75507b0E0439667ae45e280b9D81B9C;
+
+  /// @inheritdoc IMakerDAOBudgetManager
+  address public override networkPaymentAdapter = 0xaeFed819b6657B3960A8515863abe0529Dfc444A;
+
+  /// @inheritdoc IMakerDAOBudgetManager
   address public override keeper;
 
+  /// @inheritdoc IMakerDAOBudgetManager
   uint256 public override daiToClaim;
+
+  /// @inheritdoc IMakerDAOBudgetManager
   uint256 public override invoiceNonce;
+
+  /// @inheritdoc IMakerDAOBudgetManager
   mapping(uint256 => uint256) public override invoiceAmount;
 
   constructor(address _governor) Governable(_governor) {
     emit Keep3rJobSet(keep3r, job);
-    IERC20(DAI).approve(DAI_JOIN, type(uint256).max);
+    emit NetworkPaymentAdapterSet(networkPaymentAdapter);
   }
 
   // Views
 
   /// @inheritdoc IMakerDAOBudgetManager
-  function credits() public view override returns (uint256 _daiCredits) {
-    return IKeep3rV2(keep3r).jobTokenCredits(job, DAI);
+  function getDaiCredits() external view returns (uint256 _daiCredits) {
+    _daiCredits = _credits();
+  }
+
+  /// @inheritdoc INetworkTreasury
+  function getBufferSize() external view returns (uint256 _bufferSize) {
+    uint256 _daiCredits = _credits();
+
+    // Checks dai credits greater than dai to claim, if not return 0
+    _bufferSize = _daiCredits > daiToClaim ? _daiCredits - daiToClaim : 0;
   }
 
   // Methods
@@ -64,7 +88,7 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Du
   /// @inheritdoc IMakerDAOBudgetManager
   function deleteInvoice(uint256 _invoiceNonce) external override onlyGovernor {
     uint256 deleteAmount = invoiceAmount[_invoiceNonce];
-    if (deleteAmount > daiToClaim) revert InvoiceClaimed();
+    if (deleteAmount > daiToClaim) revert IMakerDAOBudgetManager_InvoiceClaimed();
 
     daiToClaim -= deleteAmount;
     delete invoiceAmount[_invoiceNonce];
@@ -86,52 +110,27 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Du
   /// @notice This function handles the flow of Vested DAI
   function _claimDai() internal {
     // claims DAI
-    uint256 daiAmount = IERC20(DAI).balanceOf(address(this));
-    IDssVest(DSS_VEST).vest(vestId);
-    // removes previous balance from scope
-    daiAmount = IERC20(DAI).balanceOf(address(this)) - daiAmount;
-
-    if (daiAmount < minBuffer) revert MinBuffer();
-
-    // returns any DAI above maxBuffer
-    uint256 daiToReturn;
-    if (daiAmount > maxBuffer) {
-      daiToReturn = daiAmount - maxBuffer;
-      daiAmount = maxBuffer;
-    }
+    uint256 _daiStreamed = INetworkPaymentAdapter(networkPaymentAdapter).topUp();
 
     // checks for DAI debt and reduces debt if applies
-    uint256 claimableDai;
-    if (daiToClaim > minBuffer) {
-      claimableDai = Math.min(daiToClaim, daiAmount);
+    uint256 _claimableDai = Math.min(daiToClaim, _daiStreamed);
 
-      // reduces debt accountance
-      daiToClaim -= claimableDai;
-      daiAmount -= claimableDai;
-    }
+    // reduces debt accountance
+    daiToClaim -= _claimableDai;
+    _daiStreamed -= _claimableDai;
 
-    // checks for credits on Keep3rJob and refills up to maxBuffer if possible
-    uint256 daiCredits = credits();
-    uint256 creditsToRefill;
-    if (daiCredits < minBuffer && daiAmount > 0) {
-      // refill credits up to maxBuffer or available DAI
-      creditsToRefill = Math.min(maxBuffer - daiCredits, daiAmount);
-
+    if (_daiStreamed > 0) {
       // refill DAI credits on Keep3rJob
-      IERC20(DAI).approve(keep3r, uint256(creditsToRefill));
-      IKeep3rV2(keep3r).addTokenCreditsToJob(job, DAI, uint256(creditsToRefill));
-
-      daiAmount -= creditsToRefill;
-    }
-
-    // returns any excess of DAI
-    daiToReturn += daiAmount;
-    if (daiToReturn > 0) {
-      IDaiJoin(DAI_JOIN).join(VOW, daiToReturn);
+      IERC20(DAI).approve(keep3r, _daiStreamed);
+      IKeep3rV2(keep3r).addTokenCreditsToJob(job, DAI, _daiStreamed);
     }
 
     // emits event to be tracked in DuneAnalytics dashboard & tracks DAI flow
-    emit ClaimedDai(claimableDai, creditsToRefill, daiToReturn);
+    emit ClaimedDai(_claimableDai, _daiStreamed);
+  }
+
+  function _credits() internal view returns (uint256 _daiCredits) {
+    _daiCredits = IKeep3rV2(keep3r).jobTokenCredits(job, DAI);
   }
 
   // Parameters
@@ -152,18 +151,15 @@ contract MakerDAOBudgetManager is IMakerDAOBudgetManager, MakerDAOParameters, Du
   }
 
   /// @inheritdoc IMakerDAOBudgetManager
-  function setVestId(uint256 _vestId) public onlyGovernor {
-    (address _usr, uint48 _bgn, uint48 _clf, uint48 _fin, , , uint128 _tot, ) = IDssVest(DSS_VEST).awards(_vestId);
-    if (_usr != address(this)) revert IncorrectVestId();
-    vestId = _vestId;
-
-    emit VestSet(_vestId, _bgn, _clf, _fin, _tot);
+  function setNetworkPaymentAdapter(address _networkPaymentAdapter) external onlyGovernor {
+    networkPaymentAdapter = _networkPaymentAdapter;
+    emit NetworkPaymentAdapterSet(_networkPaymentAdapter);
   }
 
   // Modifiers
 
   modifier onlyKeeper() {
-    if (msg.sender != keeper) revert OnlyKeeper();
+    if (msg.sender != keeper) revert IMakerDAOBudgetManager_OnlyKeeper();
     _;
   }
 }

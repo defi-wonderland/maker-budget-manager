@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.4 <0.9.0;
 
-import '../../interfaces/utils/IGovernable.sol';
+import {IGovernable} from '../../interfaces/utils/IGovernable.sol';
 
 abstract contract Governable is IGovernable {
   address public override governor;
